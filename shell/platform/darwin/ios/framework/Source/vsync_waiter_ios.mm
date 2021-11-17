@@ -57,6 +57,16 @@ void VsyncWaiterIOS::AwaitVSync() {
     };
     display_link_.get().paused = YES;
 
+    double maxFrameRate = fmax([DisplayLinkManager displayRefreshRate], 60);
+    double minFrameRate = fmax(maxFrameRate / 2, 60);
+
+    if (@available(iOS 15.0, *)) {
+      display_link_.get().preferredFrameRateRange =
+          CAFrameRateRangeMake(minFrameRate, maxFrameRate, maxFrameRate);
+    } else if (@available(iOS 10.0, *)) {
+      display_link_.get().preferredFramesPerSecond = maxFrameRate;
+    }
+
     task_runner->PostTask([client = [self retain]]() {
       [client->display_link_.get() addToRunLoop:[NSRunLoop currentRunLoop]
                                         forMode:NSRunLoopCommonModes];
@@ -89,7 +99,6 @@ void VsyncWaiterIOS::AwaitVSync() {
       std::make_unique<flutter::FrameTimingsRecorder>();
   recorder->RecordVsync(frame_start_time, frame_target_time);
   display_link_.get().paused = YES;
-
   callback_(std::move(recorder));
 }
 
