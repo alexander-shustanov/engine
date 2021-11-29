@@ -11,12 +11,8 @@
 #include <vector>
 
 #include "flutter/common/settings.h"
-#include "flutter/fml/eintr_wrapper.h"
-#include "flutter/fml/file.h"
 #include "flutter/fml/make_copyable.h"
-#include "flutter/fml/paths.h"
 #include "flutter/fml/trace_event.h"
-#include "flutter/fml/unique_fd.h"
 #include "flutter/lib/snapshot/snapshot.h"
 #include "flutter/lib/ui/text/font_collection.h"
 #include "flutter/shell/common/animator.h"
@@ -24,8 +20,6 @@
 #include "flutter/shell/common/shell.h"
 #include "rapidjson/document.h"
 #include "third_party/dart/runtime/include/dart_tools_api.h"
-#include "third_party/skia/include/core/SkCanvas.h"
-#include "third_party/skia/include/core/SkPictureRecorder.h"
 
 namespace flutter {
 
@@ -199,6 +193,10 @@ Engine::RunStatus Engine::Run(RunConfiguration configuration) {
 
   last_entry_point_ = configuration.GetEntrypoint();
   last_entry_point_library_ = configuration.GetEntrypointLibrary();
+#if (FLUTTER_RUNTIME_MODE == FLUTTER_RUNTIME_MODE_DEBUG)
+  // This is only used to support restart.
+  last_entry_point_args_ = configuration.GetEntrypointArgs();
+#endif
 
   UpdateAssetManager(configuration.GetAssetManager());
 
@@ -220,6 +218,7 @@ Engine::RunStatus Engine::Run(RunConfiguration configuration) {
           root_isolate_create_callback,              //
           configuration.GetEntrypoint(),             //
           configuration.GetEntrypointLibrary(),      //
+          configuration.GetEntrypointArgs(),         //
           configuration.TakeIsolateConfiguration())  //
   ) {
     return RunStatus::Failure;
@@ -434,14 +433,6 @@ void Engine::DispatchPointerDataPacket(
   pointer_data_dispatcher_->DispatchPacket(std::move(packet), trace_flow_id);
 }
 
-void Engine::DispatchKeyDataPacket(std::unique_ptr<KeyDataPacket> packet,
-                                   KeyDataResponse callback) {
-  TRACE_EVENT0("flutter", "Engine::DispatchKeyDataPacket");
-  if (runtime_controller_) {
-    runtime_controller_->DispatchKeyDataPacket(*packet, std::move(callback));
-  }
-}
-
 void Engine::DispatchSemanticsAction(int id,
                                      SemanticsAction action,
                                      fml::MallocMapping args) {
@@ -568,6 +559,10 @@ const std::string& Engine::GetLastEntrypoint() const {
 
 const std::string& Engine::GetLastEntrypointLibrary() const {
   return last_entry_point_library_;
+}
+
+const std::vector<std::string>& Engine::GetLastEntrypointArgs() const {
+  return last_entry_point_args_;
 }
 
 // |RuntimeDelegate|

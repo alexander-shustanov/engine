@@ -285,6 +285,11 @@ typedef enum UIAccessibilityContrast : NSInteger {
                object:nil];
 
   [center addObserver:self
+             selector:@selector(applicationWillTerminate:)
+                 name:UIApplicationWillTerminateNotification
+               object:nil];
+
+  [center addObserver:self
              selector:@selector(applicationDidEnterBackground:)
                  name:UIApplicationDidEnterBackgroundNotification
                object:nil];
@@ -422,7 +427,7 @@ static UIView* GetViewOrPlaceholder(UIView* existing_view) {
   _scrollView.reset(scrollView);
 }
 
-static void sendFakeTouchEvent(FlutterEngine* engine,
+static void SendFakeTouchEvent(FlutterEngine* engine,
                                CGPoint location,
                                flutter::PointerData::Change change) {
   const CGFloat scale = [UIScreen mainScreen].scale;
@@ -443,8 +448,8 @@ static void sendFakeTouchEvent(FlutterEngine* engine,
     return NO;
   }
   CGPoint statusBarPoint = CGPointZero;
-  sendFakeTouchEvent(_engine.get(), statusBarPoint, flutter::PointerData::Change::kDown);
-  sendFakeTouchEvent(_engine.get(), statusBarPoint, flutter::PointerData::Change::kUp);
+  SendFakeTouchEvent(_engine.get(), statusBarPoint, flutter::PointerData::Change::kDown);
+  SendFakeTouchEvent(_engine.get(), statusBarPoint, flutter::PointerData::Change::kUp);
   return NO;
 }
 
@@ -648,7 +653,7 @@ static void sendFakeTouchEvent(FlutterEngine* engine,
     // Register internal plugins before starting the engine.
     [self addInternalPlugins];
 
-    [_engine.get() launchEngine:nil libraryURI:nil];
+    [_engine.get() launchEngine:nil libraryURI:nil entrypointArgs:nil];
     [_engine.get() setViewController:self];
     _engineNeedsLaunch = NO;
   }
@@ -814,6 +819,11 @@ static void sendFakeTouchEvent(FlutterEngine* engine,
   TRACE_EVENT0("flutter", "applicationWillResignActive");
   self.view.accessibilityElementsHidden = YES;
   [self goToApplicationLifecycle:@"AppLifecycleState.inactive"];
+}
+
+- (void)applicationWillTerminate:(NSNotification*)notification {
+  [self goToApplicationLifecycle:@"AppLifecycleState.detached"];
+  [self.engine destroyContext];
 }
 
 - (void)applicationDidEnterBackground:(NSNotification*)notification {
@@ -1200,9 +1210,10 @@ static flutter::PointerData::DeviceKind DeviceKindFromTouchType(UITouch* touch) 
       }
       completion:^(BOOL finished) {
         if (self.displayLink == currentDisplayLink) {
+          // Indicates the displaylink captured by this block is the original one,which also
+          // indicates the animation has not been interrupted from its beginning. Moreover,indicates
+          // the animation is over and there is no more animation about to exectute.
           [self invalidateDisplayLink];
-        }
-        if (finished) {
           [self removeKeyboardAnimationView];
           [self ensureViewportMetricsIsCorrect];
         }
@@ -1604,12 +1615,24 @@ static flutter::PointerData::DeviceKind DeviceKindFromTouchType(UITouch* touch) 
   [_engine.get().binaryMessenger sendOnChannel:channel message:message binaryReply:callback];
 }
 
+- (NSObject<FlutterTaskQueue>*)makeBackgroundTaskQueue {
+  return [_engine.get().binaryMessenger makeBackgroundTaskQueue];
+}
+
 - (FlutterBinaryMessengerConnection)setMessageHandlerOnChannel:(NSString*)channel
                                           binaryMessageHandler:
                                               (FlutterBinaryMessageHandler)handler {
+  return [self setMessageHandlerOnChannel:channel binaryMessageHandler:handler taskQueue:nil];
+}
+
+- (FlutterBinaryMessengerConnection)
+    setMessageHandlerOnChannel:(NSString*)channel
+          binaryMessageHandler:(FlutterBinaryMessageHandler _Nullable)handler
+                     taskQueue:(NSObject<FlutterTaskQueue>* _Nullable)taskQueue {
   NSAssert(channel, @"The channel must not be null");
   return [_engine.get().binaryMessenger setMessageHandlerOnChannel:channel
-                                              binaryMessageHandler:handler];
+                                              binaryMessageHandler:handler
+                                                         taskQueue:taskQueue];
 }
 
 - (void)cleanUpConnection:(FlutterBinaryMessengerConnection)connection {
